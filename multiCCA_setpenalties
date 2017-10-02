@@ -1,0 +1,219 @@
+rm(list=ls())
+
+load("/data/cca/mt_value_n_QC.RData")
+load("/data/cca/phenotype_regicor.RData")
+
+library(PMA)
+
+# crear una nueva variable para hacer el simulacro de analisis
+#mt_value_n_TRIAL<-mt_value_n[,1:500]
+#mt_value_n_TRIAL$Slide<-rownames(mt_value_n_TRIAL)
+#merged_TRIAL=merge(data,mt_value_n_TRIAL,by="Slide")
+
+data$Slide <- NULL
+
+x1<-data[,1:31] #food groups
+x2<-mt_value_n #cpgs
+x3<-data[,32:44] #covariables
+xlist<-list(x1,x2,x3)
+
+
+for (i in 1:3) xlist[[i]] <- as.matrix(xlist[[i]])
+
+# descripcio de la funcio MultiCCA.permute per calcular els penalties EN PARAL.LEL
+p <- ncol(xlist[[1]])
+q <- ncol(xlist[[2]])
+r <- ncol(xlist[[3]])
+
+combinacions <- expand.grid(2.55, seq(1+0.1,sqrt(q)-0.1,len=10),3)   # acotem les permutacions
+combinacions <- as.matrix(combinacions)
+combinacions <- t(combinacions)
+
+
+
+MultiCCA.permute2 <-
+  function (xlist, penalties = NULL, ws = NULL, type = "standard",
+            nperms = 10, niter = 3, trace = TRUE, standardize = TRUE, multicores = 6)
+  {
+    
+    if (multicores>0){
+      library(parallel)
+    }
+    call <- match.call()
+    K <- length(xlist)
+    for (k in 1:K) {
+      if (ncol(xlist[[k]]) < 2)
+        stop("Need at least 2 features in each data set!")
+      if (standardize)
+        xlist[[k]] <- scale(xlist[[k]], T, T)
+    }
+    if (length(type) == 1)
+      type <- rep(type, K)
+    if (length(type) != K)
+      stop("Type must be a vector of length 1, or length(xlist)")
+    if (sum(type != "standard" & type != "ordered") > 0)
+      stop("Each element of type must be standard or ordered.")
+    if (is.null(penalties)) {
+      if (sum(type == "ordered") == K)
+        stop("Do not run MultiCCA.permute with only ordered data sets and penalties unspecified,\n since we only choose tuning the parameter via permutations when type='standard'.")
+      penalties <- matrix(NA, nrow = K, ncol = 10)
+      for (k in 1:K) {
+        if (type[k] == "ordered") {
+          lam <- ChooseLambda1Lambda2(svd(xlist[[k]])$v[,1])
+          penalties[k, ] <- lam
+        }
+        else {
+          penalties[k, ] <- pmax(seq(0.1, 0.8, len = 10) * sqrt(ncol(xlist[[k]])), 1.1)
+        }
+      }
+    }
+    numnonzeros <- NULL
+    if (!is.matrix(penalties))
+      penalties <- matrix(1, nrow = K, ncol = 1) %*% matrix(penalties, nrow = 1)
+    cors <- numeric(ncol(penalties))
+    print("EI") 
+    for (i in 1:ncol(penalties)) {
+      print(penalties[,i])
+      out <- MultiCCA(xlist, penalty = penalties[, i], niter = niter, type = type, ws = ws, trace = trace)
+      cors[i] <- PMA:::GetCors(xlist, out$ws, K)
+      numnonzeros <- c(numnonzeros, sum(out$numnonzeros))
+      ws.init <- out$ws.init
+    }
+    cat(fill = TRUE)
+    permcors <- mclapply(1:nperms, function(j){
+      if (trace)
+        cat("Permutation ", j, "of ", nperms, fill = TRUE)
+      xlistperm <- xlist
+      for (k in 1:K) {
+        xlistperm[[k]] <- xlistperm[[k]][sample(1:nrow(xlistperm[[k]])),]
+      }
+      sapply(1:ncol(penalties), function(i){
+        out <- try(MultiCCA(xlistperm, penalty = penalties[,i], niter = niter, type = type, ws = ws, trace = FALSE),silent=TRUE)
+        if (inherits(out,"try-error")) return(NA)
+        ans <- try(PMA:::GetCors(xlistperm, out$ws, K),silent=TRUE)
+        if (inherits(ans,"try-error")) return(NA)
+        ans
+      })
+    }, mc.cores=multicores)
+    permcors <- matrix(unlist(permcors), nrow=nperms, byrow=TRUE)
+    zs <<- (cors-colMeans(permcors,na.rm=TRUE))/(apply(permcors,2,sd,na.rm=TRUE)+0.05)
+    pvals <- colMeans(t(t(permcors) > cors))
+    if (trace)
+      cat(fill = TRUE)
+    out <- list(pvals = pvals, zstat = zs, bestpenalties = penalties[, which.max(zs)],
+                cors = cors, corperms = permcors, numnonzeros = numnonzeros,
+                ws.init = ws.init, call = call, penalties = penalties,
+                type = type, nperms = nperms)
+    class(out) <- "MultiCCA.permute"
+    return(out)
+  }
+
+
+# executar funcio per calcular permutacions
+perm.out<- MultiCCA.permute2(xlist, penalties=combinacions)
+
+# executar multiCCA amb les permutacions calculades
+bestpenalties <- perm.out$bestpenalties
+out <- MultiCCA(xlist, penalty = bestpenalties, ncomponents = 3)
+
+# coeficients de correlacio canonica estandaritzats de cada conjunt de dades
+coefs11 <- out$ws[[1]][,1] # pesos per als grups d'aliments de la primera component
+coefs21 <- out$ws[[2]][,1] # pesos per als CpG de la primera component
+coefs31 <- out$ws[[3]][,1] # pesos per a les covariables de la primera component
+
+# coeficients de correlacio canonica estandaritzats de cada conjunt de dades
+coefs12 <- out$ws[[1]][,2] # pesos per als grups d'aliments de la segona component
+coefs22 <- out$ws[[2]][,2] # pesos per als CpG de la segona component
+coefs32 <- out$ws[[3]][,2] # pesos per a les covariables de la segona component
+
+# coeficients de correlacio canonica estandaritzats de cada conjunt de dades
+coefs13 <- out$ws[[1]][,3] # pesos per als grups d'aliments de la tercera component
+coefs23 <- out$ws[[2]][,3] # pesos per als CpG de la tercera component
+coefs33 <- out$ws[[3]][,3] # pesos per a les covariables de la tercera component
+
+Y11 <- as.vector(xlist[[1]]%*%coefs11)  # mitjana ponderada dels grups d'aliments estandaritzats de la primera component 
+Y21 <- as.vector(xlist[[2]]%*%coefs21)  # mitjana ponderada dels CpG estandarditzats
+Y31 <- as.vector(xlist[[3]]%*%coefs31)  # mitjana ponderada de les covariables estandarditzats
+
+Y12 <- as.vector(xlist[[1]]%*%coefs12)  # mitjana ponderada dels grups d'aliments estandaritzats de la segona component
+Y22 <- as.vector(xlist[[2]]%*%coefs22)  # mitjana ponderada dels CpG estandarditzats
+Y32 <- as.vector(xlist[[3]]%*%coefs32)  # mitjana ponderada de les covariables estandarditzats
+
+Y13 <- as.vector(xlist[[1]]%*%coefs13)  # mitjana ponderada dels grups d'aliments estandaritzats de la tercera component
+Y23 <- as.vector(xlist[[2]]%*%coefs23)  # mitjana ponderada dels CpG estandarditzats
+Y33 <- as.vector(xlist[[3]]%*%coefs33)  # mitjana ponderada de les covariables estandarditzats
+
+out
+
+# R2 del score CpG i nutrients i covariables de la primera component
+cor(cbind(Y11,Y21,Y31))^2
+# R2 del score CpG i nutrients i covariables
+#cor(cbind(Y11,Y21,Y31))
+# R2 del score CpG i nutrients i covariables de la segona component
+cor(cbind(Y12,Y22,Y32))^2
+# R2 del score CpG i nutrients i covariables de la tercera component
+cor(cbind(Y13,Y23,Y33))^2
+
+# estan relacionats l'score dels nutrients amb l'score dels CpG?
+# els scores ja s'han calculat tenint en compte les covariables
+# m'interessa la correlacio entre aliments i cpgs de la primera component
+cor.test(Y11,Y21)
+# m'interessa la correlacio entre aliments i cpgs de la segona component
+cor.test(Y12,Y22)
+# m'interessa la correlacio entre aliments i cpgs de la tercera component
+cor.test(Y13,Y23)
+
+# quins coefs son diferents de zero i a quins aliments i cpg pertanyen de la primera component
+names(coefs11) <- colnames(xlist[[1]])
+names(coefs21) <- colnames(xlist[[2]])
+names(coefs31) <- colnames(xlist[[3]])
+cbind(coefs11[coefs11!=0])
+cbind(coefs21[coefs21!=0])
+# quins coefs son diferents de zero i a quins aliments i cpg pertanyen de la segona component
+names(coefs12) <- colnames(xlist[[1]])
+names(coefs22) <- colnames(xlist[[2]])
+names(coefs32) <- colnames(xlist[[3]])
+cbind(coefs12[coefs12!=0])
+cbind(coefs22[coefs22!=0])
+# quins coefs son diferents de zero i a quins aliments i cpg pertanyen de la tercera component
+names(coefs13) <- colnames(xlist[[1]])
+names(coefs23) <- colnames(xlist[[2]])
+names(coefs33) <- colnames(xlist[[3]])
+cbind(coefs13[coefs13!=0])
+cbind(coefs23[coefs23!=0])
+
+#save(out,correlation_dim2, corr_dim1, corr_dim2, corr_dim3,
+#     corr_food_met_dim1, corr_food_met_dim2, corr_food_met_dim3,
+#     coefs_food_dim1, coefs_met_dim1,
+#     coefs_food_dim2, coefs_met_dim2,
+#     coefs_food_dim3, coefs_met_dim3,
+#     file="/data/cca/results/regicor/multiCCA_setpenalties_new2_rep2.RData")
+
+
+#xxx <- coefs21[coefs21!=0]
+#library(CNVassoc)
+#groups <- cnv(xxx,num.class=3,mix.method="EMmixt")
+#groups <- cnv(xxx,num.class=3)
+#table(groups)
+#plot(groups)
+
+#xxx <- abs(coefs21[coefs21!=0])
+#D <- dist(xxx)
+#methods <- c("ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid")
+#hc.list <- lapply(methods, hclust, d=D)
+#names(hc.list) <- methods
+#for (i in 1:length(hc.list)) cat(methods[i],mean((cophenetic(hc.list[[i]])-D)^2),"\n")
+
+#hc <- hc.list[['median']]
+#plot(hc)
+#groups <- cutree(hc, k=2)
+#tapply(xxx,groups,summary)
+#table(groups)
+
+#out
+
+
+
+
+#print(perm.out)
+#plot(perm.out)
