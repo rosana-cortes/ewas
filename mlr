@@ -1,0 +1,27 @@
+# validacio dels cpg associats amb patro dietetic 1 usant regressio multiples
+
+rm(list=ls())
+
+load("/data/cca/mt_value_n_QC.RData")
+load("/data/cca/phenotype_regicor.RData")
+load("/data/regression/dietary_scores.RData")
+
+# multiple linear regression
+
+y1 <- dietary_scores[,1] # patro dietetic 1
+x11 = mt_value_n[,c("cg10501210","cg22796704")] # cpg associats amb patro dietetic 1
+x2 <- data[,c("edad","fuma","geaf_lig","geaf_mod","geaf_int","geaf_tot","CD8T","CD4T","NK","Bcell","Mono")] #covariables
+x2 <- model.frame(x2)
+x2 <- model.matrix(x2[,], data = x2)
+
+# regressio per patro dietetic 1
+fit <- lm(y1 ~ x11 + x2)
+summary(fit) # show results
+
+coefficients(fit) # model coefficients
+#confint(fit, level=0.95) # CIs for model parameters
+#fitted(fit) # predicted values
+#residuals(fit) # residuals
+#anova(fit) # anova table 
+#vcov(fit) # covariance matrix for model parameters 
+#influence(fit) # regression diagnostics
