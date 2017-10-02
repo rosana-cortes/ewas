@@ -1,0 +1,59 @@
+rm(list=ls())
+
+#install.packages("devtools")
+#install.packages("ggplot2")
+#devtools::install_github("kassambara/factoextra")
+library("factoextra")
+library("WriteXLS")
+
+#load("/data/cca/mt_value_n_QC.RData")
+#load("/data/cca/phenotype_regicor.RData")
+load("data/phenotype_regicor.RData")
+
+data$Slide <- NULL
+data<-data[,1:31]
+
+res.pca <- prcomp(data, center = TRUE, scale = TRUE)
+
+means<-res.pca$center #mean of variables
+sd<-res.pca$scale #outputs the standard deviation of variables
+loadings<-res.pca$rotation #outputs PC loadings
+scores<-res.pca$x #outputs the PC scores
+dim(res.pca$x) #outputs the dimensions of the matrix containing the loadings
+
+#convertir en data frame
+means<-data.frame(means)
+sd<-data.frame(sd)
+loadings<-data.frame(loadings)
+scores<-data.frame(scores)
+
+save(loadings,file="pca/results/pca_regicor/loadings_pca_regicor.RData")
+
+#guardar resultados en excel
+WriteXLS(means, ExcelFileName = "pca/results/pca_regicor/means_regicor.xls", SheetNames = NULL, perl = "perl", row.names = TRUE, col.names = TRUE)
+WriteXLS(sd, ExcelFileName = "pca/results/pca_regicor/sd_regicor.xls", SheetNames = NULL, perl = "perl", row.names = TRUE, col.names = TRUE)
+WriteXLS(loadings, ExcelFileName = "pca/results/pca_regicor/loadings_regicor.xls", SheetNames = NULL, perl = "perl", row.names = TRUE, col.names = TRUE)
+WriteXLS(scores, ExcelFileName = "pca/results/pca_regicor/scores_regicor.xls", SheetNames = NULL, perl = "perl", row.names = TRUE, col.names = TRUE)
+
+biplot(res.pca, scale=0) #plots the PCs
+
+std_dev <- res.pca$sdev #compute sd for each component
+pr_var <- std_dev^2 #computes variance for each component
+prop_varex <- pr_var/sum(pr_var) #proportion of variance explained by each PC
+var_explained<-plot(prop_varex, xlab = "Principal Component",
+             ylab = "Proportion of Variance Explained",
+             type = "b") #plots the proporcion of variance explained by each PC
+dev.copy(png,'pca/results/pca_regicor/var_explained_regicor.png')
+dev.off
+
+jpeg('pca/results/pca_regicor/var_explained_regicor.jpg')
+plot(prop_varex, xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained",
+     type = "b") #plots the proporcion of variance explained by each PC
+dev.off()
+
+jpeg('pca/results/pca_regicor/cum_var_explained_regicor.jpg')
+plot(cumsum(prop_varex), xlab = "Principal Component",
+              ylab = "Cumulative Proportion of Variance Explained",
+              type = "b") #plots the accumulative proportion of variance explained by each princial component
+dev.off()
