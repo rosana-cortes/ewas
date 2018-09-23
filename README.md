@@ -1,10 +1,7 @@
-# ewas
-EWAS aim at looking for associations between x variable and metilation levels in a bunch of CpGs.
-How to conduct epigenome wide association studies.
+# EWAS
 
-OPTION A
-1. Multiple canonical correlation analysis. Contrast 3 sets of variables: independent, CpGs and covariates.
+Epigenome Wide Association Study aiming at looking for associations between a set of variables variable and metilation levels in a set of CpGs. Two methodological approaches are employed:
 
-OPTION B
-1. PCA to find components of x variable. Determine que components (as weighted mean) that explai anmportant % of the variability.
-2. MLR (multiple linear regression or robust multiple linear regression). Conduct a regressión between each principal component and the whole set of CpGs.
+1. Multiple Canonical Correlation Analysis. Contrasting 3 sets of variables: independent variables (food intake), CpGs and covariates.
+
+2. Perform Principal Component Analysis to find the most important contributors to the food intake variables. Then, perform Robust Multiple Linear Regression between each principal component and the whole set of CpGs.
